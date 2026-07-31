@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'portal/**'
+      - 'course1/**'
+      - 'course2/**'
+      - 'course3/**'
+      - 'workshops/**'
       - '.github/workflows/deploy-portal.yml'
   workflow_dispatch:
 
