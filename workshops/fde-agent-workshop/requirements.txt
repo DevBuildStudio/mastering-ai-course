@@ -1,0 +1,7 @@
+# Core workshop runtime (standard library only implementation)
+# Add optional packages for extended labs:
+# langgraph
+# google-cloud-aiplatform
+# vertexai
+# fastapi
+# uvicorn
