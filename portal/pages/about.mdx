@@ -1,0 +1,40 @@
+import { FileText, FileCode2, Workflow, Terminal } from 'lucide-react'
+import { Tile, TileGrid } from '../components/Tiles'
+import { IconList, IconListItem } from '../components/IconList'
+
+# Portal Guide
+
+This portal presents the repository's Markdown curriculum as a searchable, navigable learning site.
+
+## Markdown or MDX?
+
+<TileGrid cols={2}>
+  <Tile icon={<FileText size={22} />} title="Markdown (.md)">
+    The course and workshop lessons remain ordinary Markdown. Nextra supports Markdown pages, and these lessons do not need embedded React components.
+  </Tile>
+  <Tile icon={<FileCode2 size={22} />} title="MDX (.mdx)">
+    Use MDX only when a page needs interactive or reusable React components, as the portal home page and this guide do. Converting every lesson to MDX would add maintenance work without improving the learning content.
+  </Tile>
+</TileGrid>
+
+Nextra compiles both extensions through the same MDX pipeline, so changing `.md` files to `.mdx` does not solve development compilation delays.
+
+## Content Workflow
+
+<IconList>
+  <IconListItem icon={<Workflow size={16} />}>Edit lessons in the repository's existing `course1`, `course2`, `course3`, or `workshops` folders.</IconListItem>
+  <IconListItem icon={<Terminal size={16} />}>Run `npm run sync-content` inside the `portal` folder, or start/build the portal. The `predev` and `prebuild` scripts synchronize content automatically.</IconListItem>
+  <IconListItem icon={<FileText size={16} />}>Generated portal pages are ignored by Git because the original Markdown files are the source of truth.</IconListItem>
+</IconList>
+
+> **Important:** Do not edit generated lesson files under `portal/pages/course*` or `portal/pages/workshops`. Your changes will be replaced during the next synchronization.
+
+## Run Locally
+
+```bash
+cd portal
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.

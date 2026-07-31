@@ -1,0 +1,45 @@
+---
+title: Mastering AI Engineering
+description: A project-based path from LLM foundations to production AI systems
+---
+
+import { BookOpen, Bot, Rocket, Presentation, Route, Code2 } from 'lucide-react'
+import { Cards, Card } from '../components/Cards'
+import { Features, Feature } from '../components/Features'
+
+<div className="portal-hero">
+  <p className="portal-kicker">AI ENGINEERING CURRICULUM</p>
+  <h1>Master AI systems by building them</h1>
+  <p className="portal-lede">Three progressive courses and a production-focused workshop, from your first language-model API call to evaluated, observable, and deployable agent systems.</p>
+  <div className="portal-actions">
+    <a className="portal-primary-action" href="/course1">Start Course 1</a>
+    <a className="portal-secondary-action" href="/about">How to use this portal</a>
+  </div>
+</div>
+
+## Choose Your Path
+
+<Cards cols={2}>
+  <Card icon={<BookOpen size={24} />} eyebrow="COURSE 1" title="Foundations of AI Engineering" href="/course1">
+    Build intuition for transformers, prompts, embeddings, RAG, fine-tuning, and evaluation.
+  </Card>
+  <Card icon={<Bot size={24} />} eyebrow="COURSE 2" title="Building AI Systems" href="/course2">
+    Give models tools, build agent loops, use MCP, coordinate agents, and add guardrails.
+  </Card>
+  <Card icon={<Rocket size={24} />} eyebrow="COURSE 3" title="Production AI Engineering" href="/course3">
+    Engineer reliable outputs, observability, safety, deployment, and multimodal products.
+  </Card>
+  <Card icon={<Presentation size={24} />} eyebrow="WORKSHOP" title="Forward Deployed AI Engineering" href="/workshops/fde-agent-workshop">
+    Diagnose real system failures and deliver an end-to-end production-minded agent.
+  </Card>
+</Cards>
+
+## What You Will Practice
+
+<Features>
+  <Feature icon={<Route size={18} />} title="Progressive learning">Each week builds on the previous one, with explicit prerequisites and checkpoints.</Feature>
+  <Feature icon={<Code2 size={18} />} title="Working software">Lessons connect to Python examples, notebooks, labs, and portfolio-ready capstones.</Feature>
+  <Feature icon={<Rocket size={18} />} title="Production judgment">Cost, latency, evaluation, safety, and operations are treated as core engineering concerns.</Feature>
+</Features>
+
+> **Recommended sequence:** Complete Courses 1, 2, and 3 in order. Use the workshop after Course 2 or as an intensive review of production agent delivery.
