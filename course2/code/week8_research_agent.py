@@ -35,6 +35,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 from pathlib import Path
 
+from dotenv import load_dotenv
 from mistralai import Mistral, AsyncMistral
 from mistralai.models import SDKError
 
@@ -43,6 +44,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("research_agent")
+
+load_dotenv()
 
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 

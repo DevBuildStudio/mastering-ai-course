@@ -38,10 +38,13 @@ from typing import Optional
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+from dotenv import load_dotenv
 from mistralai import AsyncMistral, Mistral
 from mistralai.models import SDKError
 
 matplotlib.rcParams["figure.dpi"] = 100
+
+load_dotenv()
 
 API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 print("Setup complete.")

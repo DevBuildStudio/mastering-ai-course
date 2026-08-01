@@ -32,7 +32,10 @@ import time
 import json
 from dataclasses import dataclass, field
 from typing import Optional
+from dotenv import load_dotenv
 from mistralai import Mistral
+
+load_dotenv()
 
 client = Mistral(api_key=os.environ.get("MISTRAL_API_KEY", "your-key-here"))
 print("Mistral client initialized.")

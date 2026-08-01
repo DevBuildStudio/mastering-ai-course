@@ -27,10 +27,12 @@
 import os, re, time, hashlib, asyncio, sqlite3, logging
 from datetime import datetime
 from typing import Any
+from dotenv import load_dotenv
 from mistralai.client import Mistral
 from mistralai.client.errors import SDKError
 
 logging.basicConfig(level=logging.WARNING)
+load_dotenv()
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 client = Mistral(api_key=MISTRAL_API_KEY)
 

@@ -14,6 +14,7 @@
 
 ```mermaid
 flowchart LR
+    W0["Week 0\nSetup &\nOrientation"]
     W1["Week 1\nHow LLMs\nActually Work"]
     W2["Week 2\nPrompt\nEngineering"]
     W3["Week 3\nAI APIs\nat Scale"]
@@ -23,7 +24,7 @@ flowchart LR
     W7["Week 7\nEvaluation\nSystems"]
     W8["Week 8\nCapstone\nProject"]
 
-    W1 --> W2 --> W3 --> W4 --> W5 --> W6 --> W7 --> W8
+    W0 --> W1 --> W2 --> W3 --> W4 --> W5 --> W6 --> W7 --> W8
 ```
 
 ---
@@ -32,6 +33,7 @@ flowchart LR
 
 | Week | Title | Theme |
 |------|-------|-------|
+| [Week 0: Setup & Orientation](week0-setup-orientation.md) | Setup | Get your environment working before you learn a single concept |
 | [Week 1: How LLMs Actually Work](week1-llm-foundations.md) | LLM Foundations | Build intuition before writing code |
 | [Week 2: Prompt Engineering](week2-prompt-engineering.md) | Prompting | Prompting is programming |
 | [Week 3: Working with AI APIs at Scale](week3-ai-apis-scale.md) | APIs at Scale | From single calls to real applications |
@@ -45,6 +47,7 @@ flowchart LR
 
 ## What You'll Build
 
+- **Verified Working Environment** (Week 0) — A configured Python environment, Mistral API key, and a passing one-line "setup ok" API call confirming everything is ready for Week 1.
 - **LLM Intuition Demo** (Week 1) — A notebook that visualizes tokenization, attention, and next-token prediction to cement your mental model of how transformers work.
 - **Prompt Engineering Toolkit** (Week 2) — A collection of reusable prompt templates covering zero-shot, few-shot, chain-of-thought, and system-prompt patterns, tested against a live model.
 - **Resilient API Client** (Week 3) — A production-style wrapper around an LLM API with retry logic, rate-limit handling, streaming support, and cost tracking.
@@ -60,12 +63,12 @@ flowchart LR
 
 | Category | Tools |
 |----------|-------|
-| **LLM APIs** | OpenAI API, Anthropic Claude API |
+| **LLM APIs** | Mistral API (primary), OpenAI API and Anthropic Claude API (comparison examples) |
 | **Frameworks** | LangChain, LlamaIndex |
-| **Embeddings** | OpenAI `text-embedding-ada-002`, sentence-transformers |
+| **Embeddings** | Mistral `mistral-embed`, sentence-transformers, optional OpenAI embeddings |
 | **Vector Databases** | Chroma, Pinecone, pgvector |
-| **Fine-Tuning** | OpenAI fine-tuning API, Hugging Face PEFT / LoRA |
-| **Evaluation** | RAGAS, OpenAI Evals, custom LLM-as-judge harnesses |
+| **Fine-Tuning** | Hugging Face PEFT / LoRA, OpenAI fine-tuning API as an additional example |
+| **Evaluation** | RAGAS, custom Mistral LLM-as-judge harnesses, OpenAI Evals as an additional example |
 | **Languages & Runtime** | Python 3.11+, Jupyter notebooks |
 | **Dev Tools** | `uv` / `pip`, `python-dotenv`, `httpx`, `tiktoken` |
 | **Infrastructure** | Docker (optional), GitHub Actions for eval CI |

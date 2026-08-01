@@ -34,7 +34,7 @@ Every LLM call in production should record the following attributes on its span:
 
 - **input_messages**: The full message array sent to the model, truncated or hashed for PII compliance
 - **output_text**: The model's response, again with PII handling
-- **model**: The model identifier (e.g., `claude-sonnet-4-5`, `gpt-4o`)
+- **model**: The model identifier (e.g., `mistral-large-latest`, `mistral-small-latest`)
 - **temperature**: The sampling temperature used
 - **prompt_tokens**: Number of input tokens billed
 - **completion_tokens**: Number of output tokens billed
@@ -64,7 +64,7 @@ Beyond technical metrics, you need to capture signals about whether the AI actua
 
 ### OpenTelemetry for AI Applications
 
-**OpenTelemetry (OTel)** is the open standard for distributed tracing and has become the default instrumentation layer for AI applications. The key library for Anthropic applications is `opentelemetry-instrumentation-anthropic`, which automatically wraps every API call you make and creates spans without requiring you to modify your business logic.
+**OpenTelemetry (OTel)** is the open standard for distributed tracing and has become the default instrumentation layer for AI applications. In this course we instrument Mistral calls explicitly with a small wrapper around `client.chat.complete()`, which keeps the tracing logic portable and aligned with the repository code.
 
 Once instrumented, spans are exported via the **OTLP (OpenTelemetry Protocol)** to whatever backend you choose: Grafana, Jaeger, DataDog, or any OTLP-compatible receiver. This backend independence is the major advantage of OpenTelemetry — you instrument once and can switch observability backends without touching application code.
 
@@ -74,8 +74,7 @@ rag_pipeline_instrumented.py
 
 A minimal RAG pipeline with full OpenTelemetry instrumentation.
 Prerequisites:
-  pip install anthropic chromadb opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
-  pip install opentelemetry-instrumentation-anthropic
+    pip install mistralai chromadb opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
 """
 
 import os
@@ -85,8 +84,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-import anthropic
+from mistralai import Mistral
 import chromadb
 
 # ── 1. Configure the tracer provider ────────────────────────────────────────
@@ -109,18 +107,26 @@ provider = TracerProvider(resource=resource)
 provider.add_span_processor(BatchSpanProcessor(exporter))
 trace.set_tracer_provider(provider)
 
-# ── 2. Auto-instrument the Anthropic SDK ────────────────────────────────────
-# This patches anthropic.Anthropic so every messages.create() call
-# automatically creates a span with model, token counts, cost, and latency.
-AnthropicInstrumentor().instrument()
-
-# ── 3. Get a tracer for manual spans ────────────────────────────────────────
+# ── 2. Get a tracer for manual spans ────────────────────────────────────────
 tracer = trace.get_tracer("rag-assistant")
 
-# ── 4. Initialize clients ────────────────────────────────────────────────────
-anthropic_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+# ── 3. Initialize clients ────────────────────────────────────────────────────
+mistral_client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 chroma_client = chromadb.Client()
 collection = chroma_client.get_or_create_collection("documents")
+
+
+def traced_chat(messages: list[dict], model: str = "mistral-large-latest") -> str:
+    with tracer.start_as_current_span("mistral.chat") as span:
+        span.set_attribute("model", model)
+        start = time.time()
+        response = mistral_client.chat.complete(model=model, messages=messages)
+        usage = response.usage
+        span.set_attribute("prompt_tokens", usage.prompt_tokens)
+        span.set_attribute("completion_tokens", usage.completion_tokens)
+        span.set_attribute("total_tokens", usage.total_tokens)
+        span.set_attribute("latency_ms", round((time.time() - start) * 1000, 2))
+        return response.choices[0].message.content
 
 
 def retrieve_context(query: str, n_results: int = 3) -> list[str]:
@@ -209,17 +215,13 @@ def answer_question(question: str, session_id: str) -> str:
             user_message = f"Context:\n{context_text}\n\nQuestion: {question}"
 
         # Step 3: Call the LLM
-        # AnthropicInstrumentor automatically creates a span for this call
-        # with attributes: gen_ai.model, gen_ai.usage.prompt_tokens,
-        # gen_ai.usage.completion_tokens, and duration.
-        response = anthropic_client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
+        answer = traced_chat(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            model="mistral-large-latest",
         )
-
-        answer = response.content[0].text
         request_span.set_attribute("answer.length", len(answer))
 
         return answer
@@ -276,7 +278,7 @@ graph TD
 
 ### Chapter 2.2 Checkpoint
 
-1. What is the difference between auto-instrumentation (as provided by `opentelemetry-instrumentation-anthropic`) and manual span creation? Give an example of something auto-instrumentation cannot capture that you would need a manual span for.
+1. What is the difference between automatic SDK wrapping and manual span creation? Give an example of something automatic instrumentation cannot capture that you would need a manual span for.
 2. What does "OTLP backend independence" mean in practice, and why does it matter for a team choosing observability tools?
 3. Describe the dual-mode value proposition of Braintrust. How does the connection between production traces and eval datasets create a feedback loop?
 
@@ -571,7 +573,7 @@ Fix: add metadata filters to your vector search (only retrieve from documents wi
 
 Detection: track the model identifier as a span attribute and compare quality score distributions across model versions. A sudden change in quality score coinciding with a model version change is the diagnostic signature.
 
-Fix: pin model versions explicitly (use `claude-sonnet-4-5-20251101` rather than `claude-sonnet-4-5`). Add regression tests that run your standard query set against the new model version before deploying.
+Fix: pin model versions explicitly (use a versioned Mistral model identifier rather than an unpinned alias). Add regression tests that run your standard query set against the new model version before deploying.
 
 ```python
 """
@@ -584,7 +586,7 @@ Run this against a real trace backend to see how each failure
 appears in the trace view.
 """
 
-import anthropic
+from mistralai import Mistral
 import chromadb
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -598,7 +600,7 @@ provider.add_span_processor(SimpleSpanProcessor(exporter))
 trace.set_tracer_provider(provider)
 tracer = trace.get_tracer("failure-demo")
 
-client = anthropic.Anthropic(api_key="YOUR_API_KEY")  # Replace in real use
+client = Mistral(api_key="YOUR_MISTRAL_API_KEY")  # Replace in real use
 
 
 def check_token_budget(context_text: str, question: str, max_tokens: int = 4096) -> bool:
@@ -745,7 +747,7 @@ def run_failure_demo():
         detect_context_pollution(polluted_chunks, expected_source="product-docs")
 
         # Failure 4: Model drift
-        detect_model_drift("claude-opus-4-5", expected_model="claude-sonnet-4-5-20251101")
+        detect_model_drift("mistral-large-latest", expected_model="mistral-large-2407")
 
     # Print span summary
     spans = exporter.get_finished_spans()
@@ -784,9 +786,8 @@ This lab walks you through instrumenting a complete RAG pipeline, exporting trac
 #### Prerequisites
 
 ```bash
-pip install anthropic chromadb arize-phoenix opentelemetry-sdk
+pip install mistralai chromadb arize-phoenix opentelemetry-sdk
 pip install opentelemetry-exporter-otlp-proto-grpc
-pip install opentelemetry-instrumentation-anthropic
 pip install opentelemetry-sdk-extension-aws  # optional, for AWS deployment
 
 # For Grafana dashboard (optional, requires Docker)
@@ -901,7 +902,7 @@ In Phoenix:
 - Observe how your retry logic (if any) appears as child spans
 
 **Root cause:** API rate limit exceeded.
-**Fix:** Implement exponential backoff with jitter (the Anthropic SDK does this automatically), add a rate limiter in front of your LLM calls, or implement a queue that smooths out burst traffic.
+**Fix:** Implement exponential backoff with jitter, add a rate limiter in front of your LLM calls, or implement a queue that smooths out burst traffic.
 
 #### Step 8: Inject Failure 5 — Malformed Output
 
@@ -981,7 +982,7 @@ This exercise trains the core skill: translating a user complaint into an inspec
 
 - **Traditional APM tools are blind to AI failure modes.** Latency measured in seconds (not milliseconds), errors that are "plausible but wrong" (not HTTP 500s), and per-token costs require a new observability model built on traces, spans, and events rather than counters and gauges.
 
-- **OpenTelemetry is the foundation.** Instrument once using `opentelemetry-instrumentation-anthropic` and export to any backend. The trace hierarchy — user_request → retrieval + llm_call → embed_query + vector_search + prompt_build + api_call — gives you the full picture of every request.
+- **OpenTelemetry is the foundation.** Instrument once around your Mistral calls and export to any backend. The trace hierarchy — user_request → retrieval + llm_call → embed_query + vector_search + prompt_build + api_call — gives you the full picture of every request.
 
 - **Your five core metrics are: p99 latency, error rate (HTTP + refusals), cost per request, quality score, and cache hit rate.** Build dashboards around these five metrics and set alerts on quality score (PagerDuty at < 3.5) and error rate (PagerDuty at > 5%) and cost (Slack at > $50/hour).
 

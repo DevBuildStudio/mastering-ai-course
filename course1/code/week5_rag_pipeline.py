@@ -31,6 +31,7 @@ import hashlib
 import textwrap
 import requests
 from typing import Any
+from dotenv import load_dotenv
 
 try:
     from mistralai import Mistral
@@ -48,6 +49,8 @@ try:
     import PyPDF2
 except ImportError as e:
     raise ImportError("Run: pip install pypdf2") from e
+
+load_dotenv()
 
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 client = Mistral(api_key=MISTRAL_API_KEY)

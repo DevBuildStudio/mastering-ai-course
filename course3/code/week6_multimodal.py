@@ -33,8 +33,11 @@ import io
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
+from dotenv import load_dotenv
 from mistralai import Mistral
 from mistralai.models import SDKError
+
+load_dotenv()
 
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 client = Mistral(api_key=MISTRAL_API_KEY)

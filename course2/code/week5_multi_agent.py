@@ -33,11 +33,14 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from collections import defaultdict
 
+from dotenv import load_dotenv
 from mistralai import Mistral, AsyncMistral
 from mistralai.models import SDKError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 

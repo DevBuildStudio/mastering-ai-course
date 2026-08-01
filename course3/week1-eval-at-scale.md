@@ -88,7 +88,7 @@ A **golden dataset** is your ground truth: a curated set of (query, expected ans
 
 ### Why LLM Judges Work
 
-Human evaluation is the gold standard for AI quality assessment, but it is slow, expensive, and difficult to scale. A single experienced annotator can evaluate 50–100 cases per hour. For a team running nightly evals on 500 cases, that represents days of human effort per cycle. **LLM-as-judge** fills the gap: models like GPT-4 and Claude exhibit strong inter-rater agreement with human judges on structured tasks, can evaluate thousands of cases in minutes, and produce consistent, reproducible scores when given explicit rubrics.
+Human evaluation is the gold standard for AI quality assessment, but it is slow, expensive, and difficult to scale. A single experienced annotator can evaluate 50–100 cases per hour. For a team running nightly evals on 500 cases, that represents days of human effort per cycle. **LLM-as-judge** fills the gap: models like Mistral Large, GPT-4-class systems, and Claude-class systems can exhibit strong inter-rater agreement with human judges on structured tasks, evaluate thousands of cases in minutes, and produce consistent, reproducible scores when given explicit rubrics.
 
 The core idea is straightforward: instead of asking humans "Is this answer good?", you ask a capable LLM the same question with a detailed scoring rubric. The LLM reads the query, the retrieved context (for RAG systems), and the candidate answer, then outputs a structured score with a brief justification. That justification is critical — it makes the scoring auditable and helps engineers understand failure patterns.
 
@@ -100,7 +100,7 @@ LLM judges are not perfect mirrors of human judgment. Three systematic biases ar
 
 **Verbosity bias**: Longer answers tend to score higher, even when the additional length adds no information. A 400-word answer to a question that requires 80 words will often outscore the concise answer purely due to the perception that more detail signals more effort and expertise.
 
-**Self-preference**: Claude-family models tend to prefer Claude-style responses — measured, hedged, well-structured prose. GPT-family models show analogous biases. If you use the same model family as your judge that generated the answers you are evaluating, you introduce a circular quality signal.
+**Self-preference**: Every model family carries style bias. Mistral models may prefer concise instruction-following answers; Claude-family models tend to prefer measured, hedged prose; GPT-family models show analogous preferences. If you use the same model family as your judge that generated the answers you are evaluating, you introduce a circular quality signal.
 
 ### Mitigation Strategies
 
@@ -108,16 +108,15 @@ Each bias has a corresponding mitigation:
 
 - **Positional bias**: Evaluate each pair twice, swapping answer order. Average the two scores. If the delta between swapped evaluations exceeds 0.5 on a 5-point scale, flag the case for human review.
 - **Verbosity bias**: Add explicit anti-verbosity language to your judge prompt: "Do not award higher scores to longer answers. Score based on accuracy and relevance only. Penalize unnecessary padding or repetition."
-- **Self-preference**: Use **cross-model judging** — if your system uses Claude for generation, use GPT-4 (or a fine-tuned open-source judge) for evaluation, and vice versa. This does not eliminate bias but breaks the self-preference loop.
+- **Self-preference**: Use **cross-model judging** when needed — for example, generate with Mistral and compare against OpenAI or Anthropic on a held-out sample. This does not eliminate bias but breaks the self-preference loop.
 
 ```python
 import asyncio
 import json
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
+import os
+from mistralai import Mistral
 
-anthropic_client = AsyncAnthropic()
-openai_client = AsyncOpenAI()
+judge_client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
 JUDGE_PROMPT = """You are an expert evaluator for AI assistant responses.
 
@@ -162,24 +161,24 @@ async def judge_with_swap(query: str, context: str, answer: str) -> dict:
     Runs two evaluations (normal + swapped context order) and averages scores.
     """
 
-    async def call_gpt4_judge(q, ctx, ans) -> dict:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "user", "content": JUDGE_PROMPT.format(
-                    query=q, context=ctx, answer=ans
-                )}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
+    async def call_mistral_judge(q, ctx, ans) -> dict:
+      response = await asyncio.to_thread(
+        judge_client.chat.complete,
+        model="mistral-large-latest",
+        response_format={"type": "json_object"},
+        messages=[
+          {"role": "user", "content": JUDGE_PROMPT.format(
+            query=q, context=ctx, answer=ans
+          )}
+        ],
         )
         return json.loads(response.choices[0].message.content)
 
     # Run two evaluations concurrently — normal order and reversed context order
     # This mitigates positional bias by averaging both orderings
     result_a, result_b = await asyncio.gather(
-        call_gpt4_judge(query, context, answer),
-        call_gpt4_judge(query, context[::-1], answer),  # reversed context as proxy
+      call_mistral_judge(query, context, answer),
+      call_mistral_judge(query, context[::-1], answer),  # reversed context as proxy
     )
 
     # Average the scores across both runs
@@ -253,7 +252,7 @@ Building an eval system from scratch — writing judge prompts, managing dataset
 - **Context Recall**: Of all the information needed to answer the question, what fraction was retrieved? Low context recall means your retriever is missing critical evidence.
 
 ```bash
-pip install ragas langchain openai
+pip install ragas langchain-mistralai mistralai
 ```
 
 ```python
@@ -267,7 +266,7 @@ from ragas.metrics import (
     context_recall,
 )
 from ragas.llms import LangchainLLMWrapper
-from langchain_openai import ChatOpenAI
+from langchain_mistralai import ChatMistralAI
 
 # Prepare your evaluation dataset in RAGAS format
 # Each row: question, answer (generated), contexts (retrieved), ground_truth
@@ -297,7 +296,7 @@ eval_data = {
 dataset = Dataset.from_dict(eval_data)
 
 # Configure the judge LLM — use a capable model for reliable scoring
-judge_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o", temperature=0))
+judge_llm = LangchainLLMWrapper(ChatMistralAI(model="mistral-large-latest", temperature=0))
 
 async def run_ragas_eval(dataset: Dataset) -> dict:
     """
@@ -341,7 +340,7 @@ prompts:
   - file://prompts/rag_answer_v2.txt
 
 providers:
-  - openai:gpt-4o
+  - mistral:mistral-large-latest
 
 tests:
   - description: "Capital gains tax query — should cite specific rates"
@@ -456,12 +455,12 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install ragas langchain langchain-openai datasets openai
+        run: pip install ragas langchain-mistralai datasets mistralai
 
       - name: Run RAGAS evaluation suite
         id: eval
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
           python scripts/run_evals.py \
             --dataset evals/golden_dataset.jsonl \
@@ -642,7 +641,7 @@ The compounding nature of eval investment is real: 20 hours writing evals now sa
 **Prerequisites**:
 - Python 3.11+
 - GitHub repository with Actions enabled
-- OpenAI API key stored as `OPENAI_API_KEY` in GitHub Secrets
+- Mistral API key stored as `MISTRAL_API_KEY` in GitHub Secrets
 - A working RAG pipeline (or the stub provided below)
 
 ---
@@ -652,7 +651,7 @@ The compounding nature of eval investment is real: 20 hours writing evals now sa
 ```bash
 mkdir -p rag-eval-demo/{src,evals,scripts,.github/workflows}
 cd rag-eval-demo
-pip install ragas langchain langchain-openai datasets openai pandas matplotlib
+pip install ragas langchain-mistralai datasets mistralai pandas matplotlib
 ```
 
 Create the directory structure:
@@ -708,7 +707,7 @@ from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
 from ragas.llms import LangchainLLMWrapper
-from langchain_openai import ChatOpenAI
+from langchain_mistralai import ChatMistralAI
 
 # Import your RAG pipeline
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -738,9 +737,9 @@ async def generate_answers(cases: list[dict]) -> list[dict]:
     return results
 
 
-def run_ragas(eval_rows: list[dict], judge_model: str = "gpt-4o") -> dict:
+def run_ragas(eval_rows: list[dict], judge_model: str = "mistral-large-latest") -> dict:
     dataset = Dataset.from_list(eval_rows)
-    judge_llm = LangchainLLMWrapper(ChatOpenAI(model=judge_model, temperature=0))
+  judge_llm = LangchainLLMWrapper(ChatMistralAI(model=judge_model, temperature=0))
 
     result = evaluate(
         dataset=dataset,
@@ -894,7 +893,7 @@ if __name__ == "__main__":
 
 Copy the workflow YAML from Section 1.4 into `.github/workflows/eval.yml`. Ensure:
 
-1. `OPENAI_API_KEY` is set in GitHub repository Secrets.
+1. `MISTRAL_API_KEY` is set in GitHub repository Secrets.
 2. The `permissions: pull-requests: write` block is present so the workflow can post comments.
 3. Your `src/rag_pipeline.py` exports an `answer_query(query: str) -> tuple[str, list[str]]` function.
 

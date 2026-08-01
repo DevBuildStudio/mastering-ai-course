@@ -29,6 +29,16 @@ function titleFromMarkdown(markdown, fallback) {
   return heading?.replace(/\*\*/g, '').trim() || fallback
 }
 
+// Source READMEs use GitHub-relative links (e.g. `week1-foo.md`) so they browse
+// correctly on GitHub. Rewrite them to absolute portal routes so they resolve
+// correctly regardless of which page they're rendered on.
+function rewriteRelativeLinks(markdown, route) {
+  return markdown.replace(
+    /\]\((week\d+-[a-z0-9-]+)\.md\)/gi,
+    (_match, slug) => `](/${route}/${slug})`,
+  )
+}
+
 function metadataModule(entries) {
   return `export default ${JSON.stringify(entries, null, 2)}\n`
 }
@@ -48,14 +58,19 @@ async function syncCourse(course) {
     .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
 
   const overviewSource = path.join(sourceDirectory, 'README.md')
-  await cp(overviewSource, path.join(destinationDirectory, 'index.md'))
+  const overviewMarkdown = await readFile(overviewSource, 'utf8')
+  await writeFile(
+    path.join(destinationDirectory, 'index.md'),
+    rewriteRelativeLinks(overviewMarkdown, course.route),
+    'utf8',
+  )
 
   const metadata = { index: 'Course Overview' }
   for (const filename of filenames) {
     const source = path.join(sourceDirectory, filename)
     const destination = path.join(destinationDirectory, filename)
     const markdown = await readFile(source, 'utf8')
-    await cp(source, destination)
+    await writeFile(destination, rewriteRelativeLinks(markdown, course.route), 'utf8')
     metadata[path.basename(filename, '.md')] = titleFromMarkdown(markdown, filename)
   }
 

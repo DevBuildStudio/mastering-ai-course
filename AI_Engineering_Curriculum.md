@@ -34,7 +34,7 @@ This course introduces the foundational concepts every AI engineer needs before 
 By completing this course, students will be able to:
 - Explain how large language models work at a conceptual and practical level
 - Write effective prompts using structured techniques (zero-shot, few-shot, chain-of-thought)
-- Build applications using the Anthropic Claude API and OpenAI API
+- Build applications using the Mistral API as the primary SDK, with OpenAI and Anthropic as comparison examples
 - Design and implement a Retrieval-Augmented Generation (RAG) pipeline from scratch
 - Fine-tune a pre-trained model on a custom dataset
 - Evaluate LLM outputs with basic quality metrics
@@ -69,14 +69,14 @@ By completing this course, students will be able to:
 
 #### Chapter 1.3 — Your First API Call
 - Setting up a Python environment for AI development
-- Calling the Anthropic API and the OpenAI API
+- Calling the Mistral API for core labs, with OpenAI and Anthropic comparison snippets
 - Handling responses, errors, and rate limits
 - Building a simple CLI chatbot in 50 lines of Python
 
 #### What to Expect
 - **Lecture time:** ~4 hours
 - **Lab:** Build a CLI chatbot that streams responses
-- **Reading:** Attention Is All You Need (summary version), Anthropic's model documentation
+- **Reading:** Attention Is All You Need (summary version), Mistral model documentation, plus optional OpenAI/Anthropic API docs for comparison
 - **Quiz:** 10-question concept check on transformers and tokenization
 
 ---
@@ -388,7 +388,7 @@ By completing this course, students will be able to:
 **Theme:** Give your AI hands
 
 #### Learning Goals
-- Implement function calling with the Anthropic and OpenAI APIs
+- Implement function calling with the Mistral API, with OpenAI and Anthropic as comparison examples
 - Design tool schemas that are clear and unambiguous for models
 - Handle tool call loops, errors, and partial execution
 - Build a tool registry pattern for reusable tool libraries
@@ -826,8 +826,8 @@ By completing this course, students will be able to:
 - The prompt-vs-constraint trade-off: asking nicely vs. enforcing structurally
 
 #### Chapter 3.2 — Structured Generation Techniques
-- JSON mode and response_format in the OpenAI API
-- Anthropic's tool use for structured output extraction
+- Structured output and `response_format` with the Mistral API
+- OpenAI JSON mode and Anthropic tool use as comparison patterns
 - Pydantic + Instructor: type-safe LLM outputs in Python
 - Outlines: constrained decoding at the token level for open-source models
 
@@ -909,7 +909,7 @@ By completing this course, students will be able to:
 
 #### Chapter 5.2 — Caching and Cost Optimization
 - Semantic caching: caching by meaning, not exact string match
-- Prompt caching: Anthropic and OpenAI API-level caching
+- Prompt caching and request reuse patterns across Mistral, OpenAI, and Anthropic APIs
 - CDN caching for static AI outputs (embeddings, pre-computed responses)
 - Cost budgets, alerts, and per-tenant billing
 
@@ -1075,8 +1075,9 @@ Build and deploy a complete, production-ready AI product of your own design. Thi
 - **VS Code** + Claude extension — primary IDE
 
 ### AI APIs and Models
-- **Anthropic Claude API** — primary LLM throughout the curriculum
+- **Mistral API** — primary LLM throughout the curriculum
 - **OpenAI API** — for fine-tuning and comparison
+- **Anthropic Claude API** — additional comparison examples for API design and tool use
 - **Voyage AI or Cohere** — embedding models
 
 ### Data and Storage

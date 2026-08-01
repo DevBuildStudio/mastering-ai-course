@@ -68,7 +68,7 @@ flowchart TD
 |----------|-------|
 | Evaluation | Promptfoo, LangSmith, RAGAS, custom eval frameworks |
 | Observability | OpenTelemetry, LangSmith, Langfuse, Helicone, Arize |
-| Structured generation | Instructor, Outlines, JSON mode (OpenAI / Anthropic), Pydantic |
+| Structured generation | Instructor, Outlines, structured output with Mistral, Pydantic, plus OpenAI / Anthropic comparison examples |
 | Safety | Guardrails AI, LlamaGuard, prompt injection detection, content moderation APIs |
 | Deployment | Docker, Kubernetes, AWS / Azure / GCP, modal, Railway, GitHub Actions |
 | Multimodal | GPT-4o, Claude 3.x, Gemini 1.5, Whisper, document parsing (Textract, Azure Document Intelligence) |

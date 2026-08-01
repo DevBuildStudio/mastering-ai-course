@@ -32,6 +32,7 @@ import textwrap
 from dataclasses import dataclass, field
 from typing import Optional
 
+from dotenv import load_dotenv
 from mistralai import Mistral
 from mistralai.models import SDKError
 
@@ -55,6 +56,8 @@ except ImportError:
     RICH_AVAILABLE = False
     console = None
     print("Rich not installed. Run: pip install rich")
+
+load_dotenv()
 
 API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 client = Mistral(api_key=API_KEY)

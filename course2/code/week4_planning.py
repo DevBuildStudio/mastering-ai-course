@@ -33,8 +33,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
+from dotenv import load_dotenv
 from mistralai import Mistral
 from mistralai.models import SDKError
+
+load_dotenv()
 
 client = Mistral(api_key=os.environ.get("MISTRAL_API_KEY", "your-key-here"))
 

@@ -16,35 +16,38 @@ Early language models had exactly one output modality: text. You asked a questio
 
 **Function calling** (also called **tool use**) formalizes this interaction. Instead of asking the model to describe what it would do, you give it a catalog of tools and let it issue structured requests to use them. The execution happens in your code, not inside the model. The model never runs arbitrary code — it only declares intent.
 
-The Anthropic API expresses this through two new content block types:
+The Mistral API expresses this through two structured artifacts:
 
-- `tool_use` — the model's request to invoke a tool, containing a name and a JSON payload of arguments.
-- `tool_result` — your code's response, containing the return value (or an error message).
+- `tool_calls` — the model's request to invoke one or more functions, each with a name and a JSON payload of arguments.
+- `tool` messages — your code's response, containing the return value (or an error message) for each tool call.
 
-### The Anthropic Tool Schema
+### The Mistral Tool Schema
 
 Every tool you register with the API must have a schema that tells the model what the tool is and how to call it:
 
 ```python
 {
-    "name": "search_web",          # snake_case verb_noun
-    "description": "Search the web for current information. Returns the top 5 results "
-                   "as a list of {title, url, snippet} objects. Does NOT browse URLs "
-                   "or retrieve full page content.",
-    "input_schema": {              # standard JSON Schema
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "The search query. Be specific. Example: 'Python asyncio timeout 2024'"
-            }
-        },
-        "required": ["query"]
+    "type": "function",
+    "function": {
+        "name": "search_web",
+        "description": "Search the web for current information. Returns the top 5 results "
+                       "as a list of {title, url, snippet} objects. Does NOT browse URLs "
+                       "or retrieve full page content.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query. Be specific. Example: 'Python asyncio timeout 2024'"
+                }
+            },
+            "required": ["query"]
+        }
     }
 }
 ```
 
-Three fields are mandatory: `name`, `description`, and `input_schema`. The `input_schema` is a standard **JSON Schema** object that validates the model's arguments before your code ever sees them.
+Within the `function` object, the key fields are `name`, `description`, and `parameters`. The `parameters` value is a standard **JSON Schema** object that validates the model's arguments before your code ever sees them.
 
 ### The Tool Call Loop
 
@@ -53,85 +56,92 @@ Understanding the full round-trip is essential. A single user turn can involve m
 ```mermaid
 sequenceDiagram
     participant User
-    participant Claude
+    participant Mistral
     participant Executor
     participant ToolFn as Tool Function
 
-    User->>Claude: "What's the weather in Paris and convert 25°C to °F?"
-    Claude->>Executor: tool_use: search_web(query="Paris weather today")
-    Claude->>Executor: tool_use: calculate(expression="25 * 9/5 + 32")
-    Note over Claude,Executor: Parallel tool calls in one response
+    User->>Mistral: "What's the weather in Paris and convert 25°C to °F?"
+    Mistral->>Executor: tool_call: get_weather(location="Paris")
+    Mistral->>Executor: tool_call: calculate(expression="25 * 9/5 + 32")
+    Note over Mistral,Executor: Parallel tool calls in one response
     Executor->>ToolFn: search_web("Paris weather today")
     ToolFn-->>Executor: {results: [...]}
     Executor->>ToolFn: calculate("25 * 9/5 + 32")
     ToolFn-->>Executor: {result: 77.0}
-    Executor-->>Claude: tool_result (search), tool_result (calculate)
-    Claude-->>User: "Paris is currently 25°C (77°F), partly cloudy..."
+    Executor-->>Mistral: tool messages (weather, calculate)
+    Mistral-->>User: "Paris is currently 25°C (77°F), partly cloudy..."
 ```
 
-Notice the critical detail: Claude issued **two tool calls in a single response**. This is **parallel tool use** — when the model determines that two or more tools are independent (neither depends on the other's output), it batches them into one turn. Your executor runs them concurrently, saving a full round-trip.
+Notice the critical detail: Mistral issued **two tool calls in a single response**. This is **parallel tool use** — when the model determines that two or more tools are independent (neither depends on the other's output), it batches them into one turn. Your executor runs them concurrently, saving a full round-trip.
 
-The loop terminates when Claude returns a response with `stop_reason: "end_turn"` rather than `stop_reason: "tool_use"`. Your orchestration code must check this condition after every API call.
+The loop terminates when Mistral returns a response with `finish_reason: "stop"` and no pending `tool_calls`. Your orchestration code must check this condition after every API call.
 
 ### Minimal Orchestration Loop in Python
 
 ```python
-import anthropic
+import json
+import os
+from mistralai import Mistral
 
-client = anthropic.Anthropic()
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
 def run_agent(user_message: str, tools: list, executor) -> str:
     """
-    Run the tool-use loop until Claude stops requesting tools.
+    Run the tool-use loop until Mistral stops requesting tools.
     Returns the final text response.
     """
     messages = [{"role": "user", "content": user_message}]
 
     while True:
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=4096,
+        response = client.chat.complete(
+            model="mistral-large-latest",
             tools=tools,
             messages=messages,
         )
 
-        # Append Claude's response to the conversation history
-        messages.append({"role": "assistant", "content": response.content})
+        choice = response.choices[0]
+        assistant_msg = choice.message
+        messages.append({
+            "role": "assistant",
+            "content": assistant_msg.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in (assistant_msg.tool_calls or [])
+            ],
+        })
 
-        # If Claude is done, return the final text
-        if response.stop_reason == "end_turn":
-            # Extract text from the final response
-            for block in response.content:
-                if hasattr(block, "text"):
-                    return block.text
-            return ""
+        if choice.finish_reason == "stop" or not assistant_msg.tool_calls:
+            return assistant_msg.content or ""
 
-        # Otherwise, Claude wants to use tools — execute them all
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                result = executor.execute(block.name, block.input)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,  # must match the request id
-                    "content": str(result),
-                })
-
-        # Feed results back as a user turn
-        messages.append({"role": "user", "content": tool_results})
+        for tool_call in assistant_msg.tool_calls:
+            args = json.loads(tool_call.function.arguments)
+            result = executor.execute(tool_call.function.name, args)
+            messages.append({
+                "role": "tool",
+                "name": tool_call.function.name,
+                "tool_call_id": tool_call.id,
+                "content": str(result),
+            })
 ```
 
-> **Key Insight: The model never executes anything.** Claude emits a `tool_use` block as a declaration of intent. Your Python code decides whether, how, and with what permissions to actually execute that request. This separation is what makes tool use safe and auditable.
+> **Key Insight: The model never executes anything.** Mistral emits `tool_calls` as declarations of intent. Your Python code decides whether, how, and with what permissions to actually execute that request. This separation is what makes tool use safe and auditable.
 
-> **Key Insight: Tool results are injected as a `user` message.** The conversation alternates user/assistant. After executing tools, you append a `user` message containing all `tool_result` blocks. This is why `tool_use_id` must match — it threads each result back to the exact request that generated it.
+> **Key Insight: Tool results are injected as `tool` messages.** After executing tools, you append `tool` messages with the matching `tool_call_id`. That threads each result back to the exact request that generated it.
 
-> **Key Insight: Parallel tool calls reduce latency.** If a user asks three independent questions that each require a tool, Claude can batch all three into one response. Your executor should run them concurrently with `asyncio.gather` to avoid multiplying latency.
+> **Key Insight: Parallel tool calls reduce latency.** If a user asks three independent questions that each require a tool, Mistral can batch all three into one response. Your executor should run them concurrently with `asyncio.gather` to avoid multiplying latency.
 
 ### Chapter Checkpoint
 
-1. What is the `stop_reason` value that signals Claude wants to use a tool, and what value signals it is done?
-2. A `tool_result` block must include which field to link it back to the correct `tool_use` request?
-3. Under what conditions will Claude issue parallel tool calls, and how should your executor handle them?
+1. What `finish_reason` and `tool_calls` combination tells you Mistral is done versus still requesting tools?
+2. A `tool` message must include which field to link it back to the correct prior tool call?
+3. Under what conditions will Mistral issue parallel tool calls, and how should your executor handle them?
 
 ---
 
@@ -139,7 +149,7 @@ def run_agent(user_message: str, tools: list, executor) -> str:
 
 ### The Description is the Model's Only Guide
 
-When Claude decides whether to use a tool and how to fill its parameters, it reads exactly one source of truth: the `description` field you provided. There is no runtime introspection, no docstring parsing, no type inference. If your description is vague, the model will guess — and guesses compound into failures.
+When Mistral decides whether to use a tool and how to fill its parameters, it reads exactly one source of truth: the `description` field you provided. There is no runtime introspection, no docstring parsing, no type inference. If your description is vague, the model will guess — and guesses compound into failures.
 
 A good description answers four questions:
 
@@ -225,15 +235,15 @@ CALCULATOR_TOOL = {
 
 ### Error Returns: Structured, Not Thrown
 
-This is the single most important implementation detail for tool reliability: **never raise an exception from a tool function**. If you raise, the exception propagates up through your executor and Claude never learns what went wrong. Instead, always return a structured error object:
+This is the single most important implementation detail for tool reliability: **never raise an exception from a tool function**. If you raise, the exception propagates up through your executor and the model never learns what went wrong. Instead, always return a structured error object:
 
 ```python
-# Bad — raises, Claude sees nothing
+# Bad — raises, the model sees nothing
 def read_file(path: str) -> str:
     with open(path) as f:  # raises FileNotFoundError if missing
         return f.read()
 
-# Good — returns structured error, Claude can react
+# Good — returns structured error, Mistral can react
 def read_file(path: str, max_bytes: int = 50000) -> dict:
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -247,13 +257,13 @@ def read_file(path: str, max_bytes: int = 50000) -> dict:
         return {"success": False, "error": f"Unexpected error: {type(e).__name__}: {e}"}
 ```
 
-When Claude receives `{"success": false, "error": "File not found: /data/report.csv"}`, it can reason about the failure — try a different path, ask the user for clarification, or explain the problem. When it receives a Python traceback embedded in an exception, it receives nothing useful.
+When Mistral receives `{"success": false, "error": "File not found: /data/report.csv"}`, it can reason about the failure — try a different path, ask the user for clarification, or explain the problem. When it receives a Python traceback embedded in an exception, it receives nothing useful.
 
 > **Key Insight: Descriptions are prompt engineering.** The `description` field is not documentation for humans — it is a prompt that the model reads during inference. Write it with the same care you would give a system prompt instruction. Ambiguous descriptions cause silent misbehavior that is hard to debug.
 
 > **Key Insight: Enums are a forcing function.** Declaring an enum in your schema does two things: it constrains the model's output, and it documents the valid values for your own code. A tool that accepts `"high"`, `"medium"`, or `"low"` as a priority is safer and clearer than one that accepts any string.
 
-> **Key Insight: Return structured errors, not exceptions.** Claude cannot catch Python exceptions — it only sees what you return. A well-formatted error response lets Claude reason about failure and potentially recover. A stack trace buried in a server log helps no one.
+> **Key Insight: Return structured errors, not exceptions.** The model cannot catch Python exceptions — it only sees what you return. A well-formatted error response lets Mistral reason about failure and potentially recover. A stack trace buried in a server log helps no one.
 
 ### Chapter Checkpoint
 
@@ -271,7 +281,7 @@ Ad-hoc tool dispatch — a long `if/elif` chain checking `tool_name` — breaks 
 
 ```mermaid
 flowchart TD
-    A[Incoming tool_use block\nname + input JSON] --> B{Lookup name\nin registry}
+    A[Incoming tool call\nname + input JSON] --> B{Lookup name\nin registry}
     B -- Not found --> C[Return error:\ntool not registered]
     B -- Found --> D[Validate input\nagainst JSON Schema]
     D -- Invalid --> E[Return error:\nvalidation failed + details]
@@ -279,7 +289,7 @@ flowchart TD
     F -- Timeout --> G[Return error:\ntool timed out]
     F -- Exception --> H[Return error:\nexception message]
     F -- Success --> I[Log to audit DB:\ntimestamp, tool, hashes, latency]
-    I --> J[Return tool_result block]
+    I --> J[Return tool message]
 ```
 
 ### Complete ToolExecutor Implementation
@@ -298,7 +308,7 @@ logger = logging.getLogger(__name__)
 
 class ToolExecutor:
     """
-    Central dispatcher for tool calls from Claude.
+    Central dispatcher for tool calls from Mistral.
     Provides registry management, timeout enforcement, and audit logging.
     """
 
@@ -350,7 +360,7 @@ class ToolExecutor:
         """
         Synchronous entry point. Dispatches to the registered function,
         enforces timeout, and logs the result.
-        Returns a dict that will be JSON-serialized into a tool_result block.
+        Returns a dict that will be JSON-serialized into a tool response.
         """
         start = time.monotonic()
         input_hash = self._hash(tool_input)
@@ -412,7 +422,7 @@ fn = getattr(module, tool_name.split(".")[1])
 fn(**tool_input)
 ```
 
-If a prompt injection attack tricks Claude into emitting `tool_use` with `name: "os.system"` and `input: {"cmd": "rm -rf /"}`, this code would execute it. The registry pattern in `ToolExecutor` prevents this: only functions you explicitly registered can ever be called.
+If a prompt injection attack tricks Mistral into emitting a tool call with `name: "os.system"` and `input: {"cmd": "rm -rf /"}`, this code would execute it. The registry pattern in `ToolExecutor` prevents this: only functions you explicitly registered can ever be called.
 
 ### Retry for Network Tools
 
@@ -621,7 +631,7 @@ def run_code(code: str, timeout_seconds: int = 30) -> dict:
 
 ### Current Time Tool
 
-Simple but essential — Claude's training data has a cutoff date and it cannot know the current time without a tool:
+Simple but essential — the model's training data has a cutoff date and it cannot know the current time without a tool:
 
 ```python
 from datetime import datetime, timezone
@@ -646,7 +656,7 @@ def get_current_time(timezone_name: str = "UTC") -> dict:
 
 > **Key Insight: E2B for untrusted code, eval() for arithmetic only.** The restricted `eval` trick is appropriate for simple arithmetic from a structured schema. The moment users can supply free-form code, you need a real sandbox. E2B provides network isolation, filesystem isolation, and process isolation.
 
-> **Key Insight: Give Claude a clock.** Without a `get_current_time` tool, Claude may reason about dates relative to its training cutoff. A one-line time tool eliminates an entire class of subtle reasoning errors in any time-sensitive assistant.
+> **Key Insight: Give the model a clock.** Without a `get_current_time` tool, Mistral may reason about dates relative to its training cutoff. A one-line time tool eliminates an entire class of subtle reasoning errors in any time-sensitive assistant.
 
 ### Chapter Checkpoint
 
@@ -665,13 +675,13 @@ In this lab you will build a complete personal assistant that uses all five tool
 **Prerequisites**
 
 ```bash
-pip install anthropic requests tenacity e2b-code-interpreter
+pip install mistralai requests tenacity e2b-code-interpreter
 ```
 
 **Step 1: Set up environment variables**
 
 ```bash
-export ANTHROPIC_API_KEY="your-key-here"
+export MISTRAL_API_KEY="your-key-here"
 export BRAVE_API_KEY="your-key-here"
 export E2B_API_KEY="your-key-here"       # optional for this lab
 ```
@@ -687,7 +697,7 @@ personal_assistant/
         files.py        # read_file, write_file
         clock.py        # get_current_time
     executor.py         # ToolExecutor class
-    schemas.py          # Anthropic tool schema definitions
+    schemas.py          # Mistral tool schema definitions
     assistant.py        # main loop
     tool_audit.db       # created at runtime
 ```
@@ -804,7 +814,9 @@ TOOLS = [
 **Step 4: Wire it all together in `assistant.py`**
 
 ```python
-import anthropic
+import json
+import os
+from mistralai import Mistral
 from executor import ToolExecutor
 from schemas import TOOLS
 from tools.web import search_web
@@ -812,8 +824,8 @@ from tools.calculator import calculate
 from tools.files import read_file, write_file
 from tools.clock import get_current_time
 
-def build_assistant() -> tuple[anthropic.Anthropic, ToolExecutor]:
-    client = anthropic.Anthropic()
+def build_assistant() -> tuple[Mistral, ToolExecutor]:
+    client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
     executor = ToolExecutor(db_path="tool_audit.db", timeout_seconds=30.0)
     executor.register("search_web", search_web)
@@ -830,39 +842,55 @@ def chat(user_input: str) -> str:
     messages = [{"role": "user", "content": user_input}]
 
     while True:
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=4096,
-            system=(
-                "You are a helpful personal assistant with access to tools. "
-                "Always use the calculate tool for arithmetic. "
-                "Always use get_current_time when the user asks about the current time or date."
-            ),
+        response = client.chat.complete(
+            model="mistral-large-latest",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful personal assistant with access to tools. "
+                        "Always use the calculate tool for arithmetic. "
+                        "Always use get_current_time when the user asks about the current time or date."
+                    ),
+                },
+                *messages,
+            ],
             tools=TOOLS,
-            messages=messages,
+            tool_choice="auto",
         )
 
-        messages.append({"role": "assistant", "content": response.content})
+        choice = response.choices[0]
+        assistant_msg = choice.message
+        messages.append({
+            "role": "assistant",
+            "content": assistant_msg.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in (assistant_msg.tool_calls or [])
+            ],
+        })
 
-        if response.stop_reason == "end_turn":
-            for block in response.content:
-                if hasattr(block, "text"):
-                    return block.text
-            return "(No text response)"
+        if choice.finish_reason == "stop" or not assistant_msg.tool_calls:
+            return assistant_msg.content or "(No text response)"
 
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                print(f"  [Tool call: {block.name}({block.input})]")
-                result = executor.execute(block.name, block.input)
-                print(f"  [Result: {str(result)[:120]}...]")
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": str(result),
-                })
-
-        messages.append({"role": "user", "content": tool_results})
+        for tc in assistant_msg.tool_calls:
+            args = json.loads(tc.function.arguments)
+            print(f"  [Tool call: {tc.function.name}({args})]")
+            result = executor.execute(tc.function.name, args)
+            print(f"  [Result: {str(result)[:120]}...]")
+            messages.append({
+                "role": "tool",
+                "name": tc.function.name,
+                "tool_call_id": tc.id,
+                "content": str(result),
+            })
 
 
 if __name__ == "__main__":
@@ -911,7 +939,7 @@ You should see a row for every tool call, with timestamps, latency measurements,
 
 1. **"Building LLM-Powered Applications"** — Valentina Alto (Packt, 2024). Chapter 5 covers tool use patterns in production systems with case studies from enterprise deployments.
 
-2. **Anthropic Tool Use Documentation** — `docs.anthropic.com/en/docs/tool-use`. The official reference for tool schemas, parallel tool calls, and the `tool_choice` parameter for forcing specific tools.
+2. **Mistral Function Calling Documentation** — `docs.mistral.ai/capabilities/function_calling/`. Use this as the primary reference for tool schemas, parallel tool calls, and the `tool_choice` parameter. Compare against OpenAI and Anthropic docs if you want to see the protocol differences.
 
 3. **"Prompt Engineering Guide"** — DAIR.AI (promptingguide.ai). The function calling section covers schema design with empirical examples of how description quality affects model accuracy.
 
@@ -923,12 +951,12 @@ You should see a row for every tool call, with timestamps, latency measurements,
 
 ## Week Summary
 
-- **Function calling is a structured protocol, not magic.** The model outputs a `tool_use` block containing a name and JSON arguments. Your code executes the tool and returns a `tool_result`. The model never directly runs code.
+- **Function calling is a structured protocol, not magic.** The model outputs `tool_calls` containing function names and JSON arguments. Your code executes the tool and returns `tool` messages. The model never directly runs code.
 
 - **The description field is prompt engineering.** It is the model's only source of information about what a tool does, when to use it, and how to format its inputs. Write descriptions with the same rigor you would apply to a system prompt.
 
 - **A ToolExecutor class provides security, reliability, and observability.** The registry pattern prevents injection attacks. `asyncio.wait_for` prevents runaway tools. SQLite audit logging gives you a complete record of every tool call for debugging and compliance.
 
-- **Error returns beat exceptions.** Tools should never raise exceptions that propagate to the model. Always return `{"success": false, "error": "specific message"}` so Claude can reason about failures and potentially recover without human intervention.
+- **Error returns beat exceptions.** Tools should never raise exceptions that propagate to the model. Always return `{"success": false, "error": "specific message"}` so Mistral can reason about failures and potentially recover without human intervention.
 
 - **Path sandboxing and restricted eval are non-negotiable for file and calculator tools.** Directory traversal attacks and code injection are not theoretical — they are the first things adversarial prompts attempt. `Path.resolve()` before comparing, and `{"__builtins__": {}}` for eval, eliminate the most common attack vectors with minimal code.

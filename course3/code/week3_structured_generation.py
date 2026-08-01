@@ -33,6 +33,7 @@ import json
 import time
 import logging
 from typing import Optional, List, Literal
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 from mistralai import Mistral
 import instructor
@@ -41,6 +42,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # Load from environment — set MISTRAL_API_KEY in your shell or a .env file
+load_dotenv()
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "your-key-here")
 MODEL_LARGE = "mistral-large-latest"
 MODEL_SMALL = "mistral-small-latest"

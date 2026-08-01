@@ -70,8 +70,8 @@ flowchart TD
 
 | Category | Technologies |
 |----------|-------------|
-| LLM APIs | Anthropic Claude, OpenAI GPT |
-| Function Calling | OpenAI tools spec, Anthropic tool use |
+| LLM APIs | Mistral API (primary), OpenAI GPT and Anthropic Claude (comparison examples) |
+| Function Calling | Mistral function calling (primary), OpenAI tools spec and Anthropic tool use |
 | Agent Protocol | Model Context Protocol (MCP) |
 | Agent Patterns | ReAct, Plan-and-Execute, Reflection |
 | Orchestration Frameworks | LangGraph, AutoGen, CrewAI |
