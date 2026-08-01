@@ -1,4 +1,7 @@
 import { visit } from 'unist-util-visit'
+import * as acorn from 'acorn'
+
+const CALLOUT_IMPORT = "import { Callout } from 'nextra/components'\n"
 
 // Maps GitHub-style alert markers (> [!NOTE]) to Nextra's <Callout> props.
 const ALERT_TYPES = {
@@ -17,6 +20,8 @@ const MARKER_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/
  */
 export function remarkGithubAlerts() {
   return (tree) => {
+    let usedCallout = false
+
     visit(tree, 'blockquote', (node) => {
       const firstParagraph = node.children?.[0]
       if (!firstParagraph || firstParagraph.type !== 'paragraph') return
@@ -36,6 +41,7 @@ export function remarkGithubAlerts() {
         node.children.shift()
       }
 
+      usedCallout = true
       node.type = 'mdxJsxFlowElement'
       node.name = 'Callout'
       node.attributes = [
@@ -45,5 +51,18 @@ export function remarkGithubAlerts() {
           : []),
       ]
     })
+
+    if (usedCallout) {
+      tree.children.unshift({
+        type: 'mdxjsEsm',
+        value: CALLOUT_IMPORT,
+        data: {
+          estree: acorn.parse(CALLOUT_IMPORT, {
+            sourceType: 'module',
+            ecmaVersion: 'latest',
+          }),
+        },
+      })
+    }
   }
 }
