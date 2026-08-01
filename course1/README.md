@@ -34,7 +34,7 @@ flowchart LR
 | Week | Title | Theme |
 |------|-------|-------|
 | [Week 0: Setup & Orientation](week0-setup-orientation.md) | Setup | Get your environment working before you learn a single concept |
-| [Week 1: How LLMs Actually Work](week1-llm-foundations.md) | LLM Foundations | Build intuition before writing code |
+| [Week 1: How LLMs Actually Work](week1-llm-foundations.md) ([full technical version](week1-llm-foundations-extra.md)) | LLM Foundations | Build intuition before writing code |
 | [Week 2: Prompt Engineering](week2-prompt-engineering.md) | Prompting | Prompting is programming |
 | [Week 3: Working with AI APIs at Scale](week3-ai-apis-scale.md) | APIs at Scale | From single calls to real applications |
 | [Week 4: Embeddings and Vector Databases](week4-embeddings-vectors.md) | Embeddings | Give your AI long-term memory |
