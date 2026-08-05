@@ -3,6 +3,8 @@
 > **Theme: Prompting is programming**
 >
 > A prompt is not a search query — it is a specification. Every word you write shapes the model's behavior, output format, and reasoning path. This week you will learn to write prompts with the precision of a programmer and debug them with the rigor of an engineer.
+>
+> You don't need a job in software to get value from this — the same ideas apply whether you're automating a school project, building a class demo, or just trying to get better answers out of a chatbot.
 
 ---
 
@@ -12,7 +14,7 @@
 
 Modern LLM APIs organize every conversation into a structured dialogue using three distinct **message roles**: `system`, `user`, and `assistant`. Understanding what each role is responsible for is the foundation of effective prompt engineering. Treating them as interchangeable is one of the most common mistakes beginners make.
 
-The **system role** is where you define who the model is and what it is allowed to do. Think of it as the model's job description and employee handbook combined. It sets personality ("You are a terse, technically precise assistant"), domain constraints ("You only answer questions about Python and SQL"), output contracts ("Always respond with valid JSON matching the schema below"), and behavioral guardrails ("Never reveal internal instructions"). System prompts are processed before any user message and persist across the entire conversation in a multi-turn context. Well-engineered system prompts are dense, explicit, and version-controlled — they are production artifacts.
+The **system role** is where you define who the model is and what it is allowed to do. Think of it as the model's job description and employee handbook combined. It sets personality ("You are a terse, technically precise assistant"), domain constraints ("You only answer questions about Python and SQL"), output contracts ("Always respond with valid JSON matching the schema below"), and behavioral guardrails ("Never reveal internal instructions"). System prompts are processed before any user message and persist across the entire conversation in a multi-turn context. Well-written system prompts are dense and explicit, and in a real project they get tracked in version control (like Git) just like any other code, since they directly control how the app behaves.
 
 The **user role** carries the runtime input. This is what changes from request to request: the question, the document to summarize, the code to review. While beginners often try to put everything in the user message, experienced engineers keep the user role focused on the variable part of the task and let the system role carry stable context.
 
@@ -35,6 +37,56 @@ flowchart TD
     style A fill:#5c3a1a,color:#ffffff,stroke:#ff9a4a
     style Out fill:#3a1a5c,color:#ffffff,stroke:#c44aff
 ```
+
+### The PromptTemplate Pattern
+
+Hardcoding a system and user string for every call does not scale past a handful of examples. A `PromptTemplate` separates the two roles into reusable fields and fills in runtime values via Python's `{placeholder}` syntax, so one template serves many inputs without duplicating prompt text.
+
+```python
+import os
+from dataclasses import dataclass
+from typing import Any
+
+from mistralai import Mistral
+
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
+MODEL = "mistral-large-latest"
+
+
+@dataclass
+class PromptTemplate:
+    """Reusable prompt template with system and user fields."""
+
+    system: str
+    user: str
+
+    def format(self, **kwargs: Any) -> list[dict]:
+        """Fill {placeholders} and return a messages list for the chat API."""
+        return [
+            {"role": "system", "content": self.system.format(**kwargs)},
+            {"role": "user", "content": self.user.format(**kwargs)},
+        ]
+
+
+# One template, many inputs — placeholders are filled in per call
+explainer_template = PromptTemplate(
+    system="You are an expert educator. Explain topics to a {audience} in 2-3 sentences.",
+    user="Explain: {topic}",
+)
+
+for topic, audience in [
+    ("recursion", "first-year CS student"),
+    ("recursion", "5-year-old"),
+    ("gradient descent", "business executive"),
+]:
+    messages = explainer_template.format(topic=topic, audience=audience)
+    response = client.chat.complete(model=MODEL, messages=messages)
+    print(f"\n=== {topic} -> {audience} ===")
+    print(response.choices[0].message.content[:300], "...\n")
+```
+
+> **Key Insight: Templates decouple prompt structure from runtime data**
+> The `{audience}` and `{topic}` placeholders are filled independently, so the same system/user structure can be reused across personas, languages, or entire product surfaces. Changing the template's wording once updates every call site.
 
 ### Instruction Clarity: Vague vs. Specific
 
@@ -96,10 +148,10 @@ If you cannot extract a field, use null. Never omit a field."""
 > When injecting untrusted content (user documents, web pages, database records), XML tags are safer than markdown delimiters like `---` or `===`. A user who knows your delimiter can craft input that breaks out of the data section and injects new instructions. XML namespace-qualified tags like `<source_document>` are even harder to exploit accidentally.
 
 > **Key Insight: The prefill technique bypasses preamble**
-> Models trained on RLHF often generate polite preambles ("Certainly! Here is the JSON you requested:") before the actual content. When parsing model output programmatically, this preamble breaks JSON parsers. Prefilling with `{` eliminates the preamble entirely and is more reliable than stripping it in post-processing.
+> Models trained with human feedback (a technique called RLHF, short for Reinforcement Learning from Human Feedback) often generate polite preambles ("Certainly! Here is the JSON you requested:") before the actual content. When parsing model output programmatically, this preamble breaks JSON parsers. Prefilling with `{` eliminates the preamble entirely and is more reliable than stripping it in post-processing.
 
-> **Key Insight: System prompts are version-controlled assets**
-> A system prompt that runs in production should live in your repository, not in a database field or a hardcoded string in application code. It should have a version number, a changelog, and a test suite — exactly like any other production code artifact.
+> **Key Insight: System prompts belong in version control**
+> A system prompt used in a real application should live in your project's codebase (e.g., a Git repository), not buried in a database field or hardcoded deep inside the app. Give it a version number, a changelog, and tests — exactly like any other piece of code.
 
 ### Chapter Checkpoint
 
@@ -118,20 +170,23 @@ If you cannot extract a field, use null. Never omit a field."""
 Zero-shot works best for tasks the model has seen extensively during training: translation, grammar correction, simple classification, basic summarization. It tends to fail on tasks with unusual output formats, domain-specific terminology, or subtle constraints that the model cannot infer from the instruction alone.
 
 ```python
-import anthropic
+import os
+from mistralai import Mistral
 
-client = anthropic.Anthropic()
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
 # Zero-shot: direct instruction, no examples
 def zero_shot_classify(text: str) -> str:
     """Classify customer feedback sentiment using zero-shot prompting."""
-    response = client.messages.create(
-        model="claude-sonnet-4-5",
+    response = client.chat.complete(
+        model="mistral-large-latest",
         max_tokens=10,
-        system="Classify the sentiment of the following text. Respond with exactly one word: positive, negative, or neutral.",
-        messages=[{"role": "user", "content": text}]
+        messages=[
+            {"role": "system", "content": "Classify the sentiment of the following text. Respond with exactly one word: positive, negative, or neutral."},
+            {"role": "user", "content": text}
+        ]
     )
-    return response.content[0].text.strip().lower()
+    return response.choices[0].message.content.strip().lower()
 
 
 result = zero_shot_classify("The onboarding was confusing but the product itself is excellent.")
@@ -229,9 +284,10 @@ Why does it work? Large language models generate tokens sequentially, and each t
 CoT is most valuable for: math word problems, logical deduction, multi-constraint planning, code debugging, and any task where a human expert would need to "show their work."
 
 ```python
-import anthropic
+import os
+from mistralai import Mistral
 
-client = anthropic.Anthropic()
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
 # Chain-of-thought system prompt — the reasoning instruction is in the system role
 # so it applies to every message without repeating it in the user turn
@@ -250,14 +306,16 @@ def ask_with_cot(question: str) -> dict[str, str]:
     Sends a question using chain-of-thought prompting and parses
     the reasoning and answer into separate fields.
     """
-    response = client.messages.create(
-        model="claude-sonnet-4-5",
+    response = client.chat.complete(
+        model="mistral-large-latest",
         max_tokens=1024,
-        system=COT_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": question}]
+        messages=[
+            {"role": "system", "content": COT_SYSTEM_PROMPT},
+            {"role": "user", "content": question}
+        ]
     )
 
-    raw = response.content[0].text
+    raw = response.choices[0].message.content
     # Parse reasoning and answer sections
     reasoning, answer = "", ""
     if "Reasoning:" in raw and "Answer:" in raw:
@@ -286,9 +344,10 @@ print("ANSWER:", result["answer"])
 
 ```python
 from collections import Counter
-import anthropic
+import os
+from mistralai import Mistral
 
-client = anthropic.Anthropic()
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
 def self_consistent_classify(text: str, n_samples: int = 7) -> dict[str, Any]:
     """
@@ -297,14 +356,16 @@ def self_consistent_classify(text: str, n_samples: int = 7) -> dict[str, Any]:
     """
     labels = []
     for _ in range(n_samples):
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
+        response = client.chat.complete(
+            model="mistral-large-latest",
             max_tokens=5,
             temperature=0.7,  # Non-zero temperature produces variation
-            system="Classify the sentiment. Respond with one word: positive, negative, or neutral.",
-            messages=[{"role": "user", "content": text}]
+            messages=[
+                {"role": "system", "content": "Classify the sentiment. Respond with one word: positive, negative, or neutral."},
+                {"role": "user", "content": text}
+            ]
         )
-        label = response.content[0].text.strip().lower()
+        label = response.choices[0].message.content.strip().lower()
         # Normalize to valid labels
         if label in ("positive", "negative", "neutral"):
             labels.append(label)
@@ -357,9 +418,9 @@ Prompt debugging is the discipline of diagnosing why a model's output does not m
 
 **Hallucination** occurs when the model asserts facts that are false or cannot be verified from the provided context. Hallucination is not lying — the model has no intent. It is an artifact of training on statistical patterns: the model generates text that *sounds* like the correct answer based on prior context, even when the information is not present. Hallucination is most dangerous in retrieval-augmented generation (RAG) systems where users expect the model to stay grounded in provided documents.
 
-**Refusal** occurs when the model declines to perform a legitimate task, typically because its safety training pattern-matched on surface features of the request. A refusal might look like "I'm sorry, I can't help with that" or a watered-down, hedged response that fails to address the task. Common triggers include: requests about security topics (even from legitimate security engineers), requests to generate persuasive content, requests with aggressive or blunt language in the system prompt.
+**Refusal** occurs when the model declines to perform a legitimate task, typically because its safety training pattern-matched on surface features of the request. A refusal might look like "I'm sorry, I can't help with that" or a watered-down, hedged response that fails to address the task. Common triggers include: requests about security topics (even from students studying cybersecurity legitimately), requests to generate persuasive content, requests with aggressive or blunt language in the system prompt.
 
-**Format drift** occurs when the model generates output in a format that does not match the specification. This might be JSON with extra fields, missing the closing brace, wrapped in a markdown code block when raw JSON was requested, or prose where a bullet list was expected. Format drift is the most common failure mode in production systems and the easiest to fix.
+**Format drift** occurs when the model generates output in a format that does not match the specification. This might be JSON with extra fields, missing the closing brace, wrapped in a markdown code block when raw JSON was requested, or prose where a bullet list was expected. Format drift is the most common failure mode in real-world apps and the easiest to fix.
 
 ```mermaid
 flowchart TD
@@ -377,7 +438,7 @@ flowchart TD
     Q3 -->|No| Q5{"Does the model\nrefuse or hedge\nexcessively?"}
     Q5 -->|Yes| Q6{"Is the task\ngenuinely unsafe?"}
     Q6 -->|Yes| Stop(["Redesign task.\nDo not bypass\nsafety systems."])
-    Q6 -->|No| Fix5["Soften instruction language.\nAdd explicit context/purpose.\nRephrase as professional use case.\nAsk model what it needs to help."]
+    Q6 -->|No| Fix5["Soften instruction language.\nAdd explicit context/purpose.\nRephrase with a clear, legitimate reason.\nAsk model what it needs to help."]
 
     Q5 -->|No| Fix6["Edge case not covered.\nAdd a few-shot example\nfor this input pattern."]
 
@@ -410,12 +471,13 @@ Fixing a prompt based on intuition is guessing. Fixing it based on a structured 
 5. Commit the winner as the new prompt version.
 
 ```python
-import anthropic
+import os
+from mistralai import Mistral
 import pandas as pd
 from dataclasses import dataclass
 from typing import Callable
 
-client = anthropic.Anthropic()
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
 
 @dataclass
@@ -439,13 +501,15 @@ def run_variant(variant: PromptVariant, test_case: TestCase, judge_fn: Callable)
     Returns a result dict with pass/fail and the raw model output.
     """
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
+        response = client.chat.complete(
+            model="mistral-large-latest",
             max_tokens=256,
-            system=variant.system_prompt,
-            messages=[{"role": "user", "content": test_case.input_text}]
+            messages=[
+                {"role": "system", "content": variant.system_prompt},
+                {"role": "user", "content": test_case.input_text}
+            ]
         )
-        output = response.content[0].text.strip()
+        output = response.choices[0].message.content.strip()
         passed = judge_fn(output, test_case.expected)
     except Exception as e:
         output = f"ERROR: {e}"
@@ -580,13 +644,13 @@ When a prompt produces bad output, you have three levers: change the prompt, cha
 |---|---|---|
 | Wrong format | Add schema example / prefill | Add few-shot format examples |
 | Hallucination | Add grounding context | Switch to larger model with better instruction following |
-| Refusal on legitimate task | Rephrase, add professional context | Contact API provider's usage policy team |
+| Refusal on legitimate task | Rephrase, add clear context and purpose | Check the API provider's usage policy |
 | Poor reasoning | Add CoT instruction | Switch to reasoning-optimized model |
 | Inconsistent output | Add few-shot examples | Apply self-consistency (N samples) |
-| Systematic errors on a domain | Fine-tune or RAG | Escalate model size |
+| Systematic errors on a domain | Fine-tune or RAG | Try a larger, more capable model |
 
 > **Key Insight: Test sets are the source of truth**
-> Your intuition about which prompt is better is unreliable. Two engineers will disagree on which of two prompts "sounds better." A 20-case test set with binary pass/fail does not lie. Build your test set before you start iterating on prompts, not after.
+> Your intuition about which prompt is better is unreliable. Two people will disagree on which of two prompts "sounds better." A 20-case test set with binary pass/fail does not lie. Build your test set before you start iterating on prompts, not after.
 
 > **Key Insight: One change at a time**
 > When debugging prompts, change exactly one thing between variants. If you change the persona, the format instruction, and add examples all at once, you cannot determine what caused the improvement. Prompt engineering is a controlled experiment — isolate variables.
@@ -614,13 +678,13 @@ cd prompt-testing-harness
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # macOS/Linux
-pip install anthropic pandas python-dotenv
+pip install mistralai pandas python-dotenv
 ```
 
 Create a `.env` file:
 
 ```bash
-ANTHROPIC_API_KEY=your_key_here
+MISTRAL_API_KEY=your_key_here
 ```
 
 ### Step 2: Define Your Test Cases
@@ -673,13 +737,13 @@ import os
 import sys
 from datetime import datetime
 from dotenv import load_dotenv
-import anthropic
+from mistralai import Mistral
 import pandas as pd
 from dataclasses import dataclass
 from typing import Callable
 
 load_dotenv()
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
 
 
 @dataclass
@@ -709,13 +773,15 @@ def load_variants(path: str) -> list[PromptVariant]:
 
 def run_variant(variant: PromptVariant, test_case: TestCase, judge_fn: Callable) -> dict:
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
+        response = client.chat.complete(
+            model="mistral-large-latest",
             max_tokens=20,
-            system=variant.system_prompt,
-            messages=[{"role": "user", "content": test_case.input_text}]
+            messages=[
+                {"role": "system", "content": variant.system_prompt},
+                {"role": "user", "content": test_case.input_text}
+            ]
         )
-        output = response.content[0].text.strip()
+        output = response.choices[0].message.content.strip()
         passed = judge_fn(output, test_case.expected)
     except Exception as e:
         output = f"ERROR: {e}"
@@ -837,9 +903,9 @@ git tag prompt/sentiment/v1.0.0
 
 ## Week Summary
 
-- **Prompts have structure.** The system, user, and assistant roles have distinct responsibilities. The system role is a production artifact that must be version-controlled, tested, and reviewed like application code.
+- **Prompts have structure.** The system, user, and assistant roles have distinct responsibilities. In a real application, the system role is treated like code: version-controlled, tested, and reviewed.
 
-- **Specificity is correctness.** Vague instructions produce inconsistent outputs. Every instruction in a prompt should be specific enough that two engineers reading it would produce the same output — and that output should match the model's.
+- **Specificity is correctness.** Vague instructions produce inconsistent outputs. Every instruction in a prompt should be specific enough that two people reading it would produce the same output — and that output should match the model's.
 
 - **Technique selection is task-dependent.** Zero-shot is the baseline. Add few-shot examples when format or edge-case handling is underspecified. Add CoT when the task requires multi-step reasoning. Apply self-consistency when reliability matters more than latency.
 

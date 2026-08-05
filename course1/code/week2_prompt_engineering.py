@@ -126,6 +126,27 @@ for persona, system in system_prompts.items():
     print(reply[:300], "...\n")
 
 # %% [markdown]
+# ### Placeholder substitution
+# A single template can serve many inputs by filling `{placeholder}` fields per call via
+# `.format(**kwargs)`, instead of writing a new system/user pair for each combination.
+
+# %%
+explainer_template = PromptTemplate(
+    system="You are an expert educator. Explain topics to a {audience} in 2-3 sentences.",
+    user="Explain: {topic}",
+)
+
+for topic, audience in [
+    ("recursion", "first-year CS student"),
+    ("recursion", "5-year-old"),
+    ("gradient descent", "business executive"),
+]:
+    messages = explainer_template.format(topic=topic, audience=audience)
+    reply = call_model(messages)
+    print(f"\n=== {topic} -> {audience} ===")
+    print(reply[:300], "...\n")
+
+# %% [markdown]
 # ## 3. Zero-Shot and Few-Shot Classification
 # *Zero-shot* asks the model to classify without examples. *Few-shot* embeds labelled
 # examples directly in the system prompt, dramatically anchoring the output distribution.
