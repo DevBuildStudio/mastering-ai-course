@@ -33,8 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dotenv import load_dotenv
-from mistralai import Mistral, AsyncMistral
-from mistralai.models import SDKError
+from mistralai.client import Mistral, errors
 
 load_dotenv()
 
@@ -89,12 +88,12 @@ def call_model(messages: list[dict], model: str = MODEL) -> str:
         Assistant reply string.
 
     Raises:
-        SDKError: On API or network failure.
+        errors.MistralError: On API or network failure.
     """
     try:
         response = client.chat.complete(model=model, messages=messages)
         return response.choices[0].message.content
-    except SDKError as exc:
+    except errors.MistralError as exc:
         print(f"[API error] {exc}")
         raise
 
@@ -402,8 +401,8 @@ print("\nValidation passed: all required keys present with correct types.")
 class PromptABTest:
     """Run and compare multiple prompt variants on a shared test suite.
 
-    Uses the AsyncMistral client to fetch all responses in parallel,
-    minimising wall-clock time.
+    Uses a second Mistral client to fetch all responses in parallel via
+    `chat.complete_async`, minimising wall-clock time.
 
     Args:
         prompts: List of system-prompt strings to compare.
@@ -416,14 +415,14 @@ class PromptABTest:
 
     async def _fetch(
         self,
-        async_client: AsyncMistral,
+        async_client: Mistral,
         system: str,
         user: str,
     ) -> str:
         """Fetch a single completion asynchronously.
 
         Args:
-            async_client: Async Mistral client instance.
+            async_client: Mistral client instance used for the async call.
             system: System prompt string.
             user: User message string.
 
@@ -439,7 +438,7 @@ class PromptABTest:
                 ],
             )
             return response.choices[0].message.content
-        except SDKError as exc:
+        except errors.MistralError as exc:
             return f"[error: {exc}]"
 
     async def run_test(self, test_cases: list[str]) -> None:
@@ -448,7 +447,7 @@ class PromptABTest:
         Args:
             test_cases: List of user message strings.
         """
-        async_client = AsyncMistral(api_key=API_KEY)
+        async_client = Mistral(api_key=API_KEY)
         self.results = {i: [] for i in range(len(self.prompts))}
 
         tasks = [
@@ -612,7 +611,7 @@ async def run_support_eval() -> dict[str, Any]:
     Returns:
         Dict mapping prompt name to average quality score and sample reply.
     """
-    async_client = AsyncMistral(api_key=API_KEY)
+    async_client = Mistral(api_key=API_KEY)
 
     async def fetch(system: str, ticket: str) -> str:
         try:
@@ -624,7 +623,7 @@ async def run_support_eval() -> dict[str, Any]:
                 ],
             )
             return resp.choices[0].message.content
-        except SDKError as exc:
+        except errors.MistralError as exc:
             return f"[error: {exc}]"
 
     tasks = [
@@ -693,5 +692,5 @@ print(f"\nSample reply from best prompt:\n{eval_report['results'][eval_report['b
 #   output removes the need for brittle string parsing and makes downstream code
 #   deterministic.
 # - **Async A/B testing scales evaluation cheaply**: running prompt variants concurrently
-#   with `AsyncMistral` collapses wall-clock time from O(n_prompts × n_cases) to
+#   with `chat.complete_async` collapses wall-clock time from O(n_prompts × n_cases) to
 #   O(max_latency), making systematic prompt iteration practical even at scale.

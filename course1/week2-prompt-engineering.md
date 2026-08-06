@@ -47,7 +47,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 MODEL = "mistral-large-latest"
@@ -171,7 +171,7 @@ Zero-shot works best for tasks the model has seen extensively during training: t
 
 ```python
 import os
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
@@ -285,7 +285,7 @@ CoT is most valuable for: math word problems, logical deduction, multi-constrain
 
 ```python
 import os
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
@@ -345,7 +345,7 @@ print("ANSWER:", result["answer"])
 ```python
 from collections import Counter
 import os
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
@@ -472,7 +472,7 @@ Fixing a prompt based on intuition is guessing. Fixing it based on a structured 
 
 ```python
 import os
-from mistralai import Mistral
+from mistralai.client import Mistral
 import pandas as pd
 from dataclasses import dataclass
 from typing import Callable
@@ -737,7 +737,7 @@ import os
 import sys
 from datetime import datetime
 from dotenv import load_dotenv
-from mistralai import Mistral
+from mistralai.client import Mistral
 import pandas as pd
 from dataclasses import dataclass
 from typing import Callable
